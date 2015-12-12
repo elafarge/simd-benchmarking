@@ -30,3 +30,10 @@ Goals:
   * Dive into the guts of `memcpy` and `realloc`
   * Vectorize these implementations !
 
+TODO List
+---------
+
+* Compare against the built-in realloc function that uses a couple more
+optimisations just for fun (we'll lose for sure anyway) and discuss the reasons
+why it's way more efficient.
+* Make sure vectorizing the comparison operation sucks, just sucks...
