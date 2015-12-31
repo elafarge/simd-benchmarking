@@ -34,15 +34,23 @@ int mgc;
 
 // Argument parsing related code
 const char *argp_program_version = "SIMDerizing benchmark";
-const char *argp_program_bug_address = "<etienne.lafarge@mines-paristech.fr>, <vincent.villet@mines-paristech.fr>";
-static char doc[] = "A simple C program to benchmark the performance gain obtained using SIMD instructions and parrallel computing in memory movement algorithms.";
+const char *argp_program_bug_address = "<etienne.lafarge@mines-paristech.fr>, "
+                                       "<vincent.villet@mines-paristech.fr>";
+static char doc[] = "A simple C program to benchmark the performance gain "
+                    "obtained using SIMD instructions and parrallel computing "
+                    "in memory movement algorithms.";
 static char args_doc[] = "";
 static struct argp_option options[] = {
-    { "size", 'n', "COUNT", OPTION_ARG_OPTIONAL, "The size of the array of generated random integers (default: 1,000,000)."},
-    { "min", 'a', "COUNT", OPTION_ARG_OPTIONAL, "The smallest int of the randomly generated range of ints (default: 0)"},
-    { "max", 'b', "COUNT", OPTION_ARG_OPTIONAL, "The smallest int of the randomly generated range of ints (default: 1000)"},
-    { "limit-search", 'k', "COUNT", OPTION_ARG_OPTIONAL, "Limits the search to the first k occurences found (default: -1 i.e. no limit)"},
-    { "lookup", 'f', "COUNT", OPTION_ARG_OPTIONAL, "The value to search for (must be between a and b, defaults to 12)."}
+    { "size", 'n', "COUNT", OPTION_ARG_OPTIONAL, "The size of the array of "
+        "generated random integers (default: 1,000,000)."},
+    { "min", 'a', "COUNT", OPTION_ARG_OPTIONAL, "The smallest int of the "
+        "randomly generated range of ints (default: 0)"},
+    { "max", 'b', "COUNT", OPTION_ARG_OPTIONAL, "The highest int of the "
+        "randomly generated range of ints (default: 1000)"},
+    { "limit-search", 'k', "COUNT", OPTION_ARG_OPTIONAL, "Limits the search "
+        "to the first k occurences found (default: -1 i.e. no limit)"},
+    { "lookup", 'f', "COUNT", OPTION_ARG_OPTIONAL, "The value to search for "
+        "(must be between a and b, defaults to 12)."}
 };
 
 struct arguments {
@@ -118,6 +126,13 @@ int* simple_realloc(int* U, int n){
     return Ubis;
 }
 
+/**
+ * The "optimized" version of realloc just uses the built-in realloc: from the
+ * tests we conducted, this realloc will simply extend the already allocated
+ * array if there's enough memory space after it and even better, when it's not
+ * the cases it performs a memory movement using SIMD instructions just like we
+ * do.
+ */
 int* optimized_realloc(int* U, int n){
     return realloc(U, n*sizeof(int));
 }
@@ -419,7 +434,7 @@ int main(int argc, char **argv){
 
     //-------------------------------------------------------------------------
     // BEGINNING OF ARGUMENTS PARSING
-    //------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
     /* Default values. */
     arguments.n = 1000000;
     arguments.a = 0;
@@ -439,7 +454,7 @@ int main(int argc, char **argv){
     lookup_value = arguments.f;
     //-------------------------------------------------------------------------
     // END OF ARGUMENTS PARSING
-    //------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
 
     test_array = generate_array(n, a, b);
 
@@ -463,17 +478,19 @@ int main(int argc, char **argv){
     printf("Time elapsed: %ld microseconds\n\n",
             (long)(t3-t2)*1000000 / CLOCKS_PER_SEC);
 
-    printf("-- Ok let's see where %d is in the array... using a parrallelized version of the unthreaded approach --\n",
-            lookup_value);
+    printf("-- Ok let's see where %d is in the array... using a parrallelized "
+           "version of the unthreaded approach --\n", lookup_value);
     t4 = clock();
     c3 = thread_find(test_array, 0, n, 1, lookup_value, &ind_val3, -1, 0);
     t5 = clock();
     printf("Time elapsed: %ld microseconds\n\n",
             (long)(t5-t4)*1000000 / CLOCKS_PER_SEC);
 
-    printf("-- Ok let's see where %d is in the array... using a parrallelized version of the vectorial unthreaded approach --\n",
-            lookup_value);
-    printf("Note that the performance gain won't be as high as before because of the last step whose complexity is O(n) where we transform the partial index lists into a single one.\n");
+    printf("-- Ok let's see where %d is in the array... using a parrallelized "
+           "version of the vectorial unthreaded approach --\n", lookup_value);
+    printf("Note that the performance gain won't be as high as before because "
+           "of the last step whose complexity is O(n) where we transform the "
+           "partial index lists into a single one.\n");
     t6 = clock();
     c4 = thread_find(test_array, 0, n, 1, lookup_value, &ind_val4, -1, 1);
     t7 = clock();
@@ -481,7 +498,8 @@ int main(int argc, char **argv){
            (long)(t7-t6)*1000000 / CLOCKS_PER_SEC);
 
     if(k >= 0){
-        printf("Ok, now let's just check that introducing a factor k limiting the output doesn't make our algorithms flaky !\n");
+        printf("Ok, now let's just check that introducing a factor k limiting "
+               "the output doesn't make our algorithms flaky !\n");
         c5 = thread_find(test_array, 0, n, 1, lookup_value, &ind_val5, k, 0);
         c6 = thread_find(test_array, 0, n, 1, lookup_value, &ind_val6, k, 1);
 
@@ -489,9 +507,13 @@ int main(int argc, char **argv){
         free(ind_val6);
 
         if(k == c5 && k == c6)
-            printf("The k-factor works as expected, careful though, we have no reasons to get the first k occurences of the element we're searching for!\n");
+            printf("The k-factor works as expected, careful though, we have "
+                   "no reasons to get the first k occurences of the element "
+                   "we're searching for!\n");
         else{
-            printf("The k-factor doesn't behave as expected. \n Debug info: k = %d, c5 = %d, c6 = %d\nExiting...\n", k, c5, c6);
+            printf("The k-factor doesn't behave as expected. \n "
+                   "Debug info: k = %d, c5 = %d, c6 = %d\nExiting...\n", k, c5,
+                   c6);
 
             free(ind_val1);
             free(ind_val2);
@@ -511,7 +533,8 @@ int main(int argc, char **argv){
     if(c1 == c2 && c1 == c3 && c1 == c4)
         printf("  - All have the same size :)\n");
     else {
-        printf("  - The ind_val arrays don't have the same size ! Stopping...\n");
+        printf("  - The ind_val arrays don't have the same size ! "
+               "Stopping...\n");
 
         free(ind_val1);
         free(ind_val2);
