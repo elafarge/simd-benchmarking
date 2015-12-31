@@ -8,6 +8,8 @@ Oh yeah it's in Python, we were a bit tired of writing C code :)
 
 # stl
 import csv
+import math
+import argparse
 import subprocess
 
 # 3p
@@ -97,5 +99,15 @@ def run_benchmark(binary_name, smpls):
     plt.show()
 
 if __name__ == "__main__":
-    run_benchmark("./simdbmk", [10**p for p in range(3, 8)])
+    parser = argparse.ArgumentParser(description='Takes a list of floats '
+             'and runs our SIMD benchmarking binary ("./simdbmk") for every '
+             '10^k, where k is an element of the list. It puts the results of '
+             'the benchmark in "./benchmark.csv" and displays a graph using '
+             'matplotlib.')
+    parser.add_argument('powers', metavar='Ps', type=float, nargs='+',
+            help='The list of powers of ten to run simdbmk with as an '
+                'argument for the size of the generated array (in case the '
+                'power of ten is not an integer it will be floored).')
+    args = parser.parse_args()
+    run_benchmark("./simdbmk", [math.floor(10**p) for p in args.powers])
 
