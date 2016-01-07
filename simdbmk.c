@@ -23,10 +23,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <emmintrin.h>
+#include <string.h>
+#include <immintrin.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <argp.h>
+
+// Our finely crafted max macro
+#define min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
 
 // Global count and max global count
 int *gc = NULL;
@@ -84,13 +91,14 @@ int* generate_array(int n, int a, int b){
     int i;
 
     // Let's create the array
-    int *res = malloc(sizeof(int)*n);
+    int *res = aligned_alloc(32, sizeof(int) * n);
 
     // Let's seed the random number generator using the current time
     srand(time(NULL));
 
-    for(int i = 0; i < n; i++)
-        res[i] = rand() % (b-a+1) + a;
+    // And let's fill up the array in a vectorial way
+    for(i = 0; i < n; i++)
+        res[i] = rand() % (b - a + 1) + a;
 
     return res;
 }
@@ -106,37 +114,6 @@ void print_array(int* U, int n){
     }
     printf("]\n");
 }
-
-int* simple_realloc(int* U, int n){
-    int i, j;
-    int* Ubis = malloc(sizeof(int)*((n + 3)/4)*4);
-
-    for(i = 0; i < n - 1; i += 1)
-        Ubis[i] = U[i];
-
-    // Note: the line below is not so naïve and would be much faster
-    // But we have an even faster implementation using the standard realloc
-    // below that we will use in the future. This one uses the standard
-    // implementation of memcpy which itself uses SIMD instructions along with
-    // other optimisation and also doesn't copy the whole array if it can
-    // simply extend it because memory is available for it.
-    // memcpy(Ubis, U, n - 1);
-
-    free(U);
-    return Ubis;
-}
-
-/**
- * The "optimized" version of realloc just uses the built-in realloc: from the
- * tests we conducted, this realloc will simply extend the already allocated
- * array if there's enough memory space after it and even better, when it's not
- * the cases it performs a memory movement using SIMD instructions just like we
- * do.
- */
-int* optimized_realloc(int* U, int n){
-    return realloc(U, n*sizeof(int));
-}
-
 
 /**
  * Looks for val in U between the indexes i_start and i_end and jumping by
@@ -171,12 +148,11 @@ int find(int *U, int i_start, int i_end, int i_step, int val, int **ind_val){
         if(U[i] == val){
             // Let's make the array one inch bigger (one time the size of an
             // int actually)
-            (*ind_val) = simple_realloc((*ind_val), c + 1);
+            (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int));
 
             // And put our current index into into that one
             (*ind_val)[c] = i;
 
-            // I love this line
             c++;
         }
     }
@@ -184,36 +160,48 @@ int find(int *U, int i_start, int i_end, int i_step, int val, int **ind_val){
     return c;
 }
 
-int* vect_realloc(int *U, int n){
-    int i, j;
-    int* Ubis = malloc(sizeof(int)*((n + 3)/4)*4);
-
-    for(i = 0; i < n - 1; i += 4){
-        if(n - 1 - i < 4){
-            for(j = 0; j < 4; j++){
-                Ubis[i + j] = U[i + j];
-            }
-            break;
-        }
-        // Vectorial movement of variables
-        _mm_store_si128((__m128i*) (Ubis + i),  *((__m128i*)(U + i)) );
-    }
-
-    free(U);
-
-    return Ubis;
-}
-
 int vect_find(int *U, int i_start, int i_end, int i_step, int val,
               int **ind_val){
-    int i;
+    int i, j, s;
     int c = 0;
+
+    __m256i cmp_vect, cmp_res;
+
+    // Let's build our comparison vector
+    cmp_vect = _mm256_set1_epi32(val);
 
     (*ind_val) = NULL;
 
-    for(i = i_start; i < i_end; i += i_step){
+    for(i = i_start; i < i_end - 6; i += i_step * 8){
+        // Let's go from a cmp_vect to a 4 bits mask with a dirty (but
+        // efficient since we don't duplicate variables in memory, we just
+        // access U[i] like an array of four ints since we know we can do so
+        // thanks to the condition on the for)
+
+        // If the whole mask is null, no matching element: let's move forward
+        cmp_res = _mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i)));
+
+        if(!_mm256_movemask_epi8(cmp_res))
+            continue;
+
+        // Or else let's analyse things one piece at a time
+        s = i + 8;
+        for(j = i; j < s; j++){
+            if(U[j] == val){
+                // Let's put a chunk of 4 elements in a vector register
+                (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int));
+                (*ind_val)[c] = j;
+                c++;
+            }
+        }
+    }
+
+    // Let's finish the job for the potentially remaining last few (3 at most)
+    // elements
+    for( ; i < i_end; i++){
         if(U[i] == val){
-            (*ind_val) = vect_realloc((*ind_val), c + 1);
+            // TODO: let's move this part in an inline function someday
+            (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int));
             (*ind_val)[c] = i;
             c++;
         }
@@ -237,13 +225,14 @@ struct thread_data{
 };
 
 void* find_threadable(void* args){
-
     // Arguments passing
     int *U;
-    int i_start, i_end, i_step, val, i;
+    int i_start, i_end, i_step, val, i, s;
     int **ind_val;
     struct thread_data* targs;
     int *c;
+
+    clock_t t0;
 
     targs = (struct thread_data*) args;
     U = targs->U;
@@ -252,30 +241,14 @@ void* find_threadable(void* args){
     i_step = targs->i_step;
     val = targs->val;
     ind_val = targs->ind_val;
-    // We're all set... such a pain in the ***
 
     c = malloc(sizeof(int));
-    *c = 0;
 
-    // So we have no results so far, let's have int_val point to nothing in the
-    // first place
-    (*ind_val) = NULL;
+    t0 = clock();
 
-    // Ok let's start looking for things
-    for(i = i_start; i < i_end; i += i_step){
-        if(U[i] == val){
-            (*ind_val) = simple_realloc((*ind_val), *c + 1);
-            (*ind_val)[*c] = i;
-            (*c)++;
-
-            if(gc != NULL){
-                (*gc)++;
-            }
-        }
-
-        if(gc != NULL && *gc > mgc)
-            return (void*) c;
-    }
+    *c = find(U, i_start, i_end, i_step, val, ind_val);
+    printf("It took %d µs for find to run from %d to %d \n",
+            (clock() - t0)*1000000/CLOCKS_PER_SEC, i_start, i_end);
 
     return (void*) c;
 }
@@ -296,33 +269,19 @@ void* vect_find_threadable(void* args){
     ind_val = targs->ind_val;
 
     c = malloc(sizeof(int));
-    *c = 0;
 
-    (*ind_val) = NULL;
-
-    for(i = i_start; i < i_end; i += i_step){
-        if(U[i] == val){
-            (*ind_val) = vect_realloc((*ind_val), *c + 1);
-            (*ind_val)[*c] = i;
-            (*c)++;
-
-            if(gc != NULL){
-                (*gc)++;
-            }
-        }
-
-        if(gc != NULL && *gc > mgc)
-            return (void*) c;
-    }
+    *c = find(U, i_start, i_end, i_step, val, ind_val);
 
     return (void*) c;
 }
 
 int thread_find(int *U, int i_start, int i_end, int i_step, int val,
                 int **ind_val, int k, int ver){
-    int n_threads, i, j, c, min, min_index, min_initialized;
+    int n_threads, i, j, c, min, l;
     int *partial_count;
     int ***ind_vals;
+
+    clock_t t1, t2, t3, t1_5;
 
     // A pointer on the find function to use
     void* (*find_routine)(void*);
@@ -341,7 +300,6 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     else
         find_routine = &vect_find_threadable;
 
-
     // Let's construct an ind_val for each thread
     ind_vals = malloc(n_threads*sizeof(int**));
 
@@ -350,7 +308,6 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     struct thread_data attr[n_threads];
 
     // Pointers to put results into a single array in the right order
-    int p[n_threads];
     int s[n_threads];
 
     if(k > 0){
@@ -360,66 +317,66 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     } else
         gc = NULL;
 
+    t1 = clock();
+
     for(i = 0; i < n_threads; i++){
         attr[i].U = U;
-        attr[i].i_start = i_start + i;
-        attr[i].i_end = i_end;
-        attr[i].i_step = i_step*n_threads;
+        // attr[i].i_start = i;
+        // attr[i].i_end = i_end;
+        // attr[i].i_step = n_threads;
+        attr[i].i_start = i_start + (i_end - i_start)/n_threads * i;
+        attr[i].i_end = min(i_start + (i_end - i_start)/n_threads * (i + 1),
+                            i_end);
+        attr[i].i_step = 1;
         attr[i].val = val;
         ind_vals[i] = malloc(sizeof(int*));
+        *ind_vals[i] = NULL;
         attr[i].ind_val = ind_vals[i];
 
         // Let's launch our individual threads
         pthread_create(&thread[i], NULL, find_routine,
                        (void *)((struct thread_data*) &attr[i]));
     }
-
+    t1_5 = clock();
     // Let's just wait for our threads to finish no matter the reason
     // And let's also initialize pointers for the single array creation
     for(i = 0; i < n_threads; i++){
         pthread_join(thread[i], (void **) &partial_count);
         s[i] = *partial_count;
-        p[i] = 0;
     }
     free(partial_count);
+
+    t2 = clock();
 
     // Let's prepare the final data structures
     c = 0;
     for(i = 0; i < n_threads; i++){
         c += s[i];
     }
-    if(k > 0 && c > k)
+    if(k > 0 && c > k) // TODO truncate in the memcpy below if k is defined
         c = k;
 
     (*ind_val) = malloc(sizeof(int) * c);
 
-    // Let's regroup and engage (while keeping the right number of elements)
-    min_initialized = 0;
-    for(j = 0; j < c; j++){
-        // Let's find the smallest elements, add it to the final array and
-        // increase the associated pointer
-        for(i = 0; i < n_threads; i++){
-            if(p[i] >= s[i])
-                continue;
-
-            if(!min_initialized){
-                min_index = i;
-                min = (*ind_vals[i])[p[i]];
-                min_initialized = 1;
-            } else if((*ind_vals[i])[p[i]] < min){
-                min_index = i;
-                min = (*ind_vals[i])[p[i]];
-            }
-        }
-
-        (*ind_val)[j] = min;
-        p[min_index]++;
-        min_initialized = 0;
+    // And now we just have to concatenate our arrays, so cool and fast
+    l = 0;
+    for(i = 0; i < n_threads; i++){
+        memcpy(*ind_val + l, *ind_vals[i], s[i]*sizeof(int));
+        l += s[i];
     }
 
     // Let's free our last resources
     free(gc);
     free(ind_vals);
+
+    t3 = clock();
+
+    printf("Find time (total): %dµs (%d starting), Regroup time: %dµs, Ratio: %f\n",
+            (long)(t2-t1)*1000000 / CLOCKS_PER_SEC,
+            (long)(t1_5-t1)*1000000 / CLOCKS_PER_SEC,
+            (long)(t3-t2)*1000000 / CLOCKS_PER_SEC,
+            (long)(t3-t2)*1000000 / CLOCKS_PER_SEC /
+            (long)(t2-t1)/1000000 * CLOCKS_PER_SEC);
 
     return c;
 }
@@ -455,10 +412,9 @@ int main(int argc, char **argv){
     //-------------------------------------------------------------------------
     // END OF ARGUMENTS PARSING
     //-------------------------------------------------------------------------
-
+    printf("\n-- Let's generate a test array of size %d --\n", n);
     test_array = generate_array(n, a, b);
 
-    eq = 1;
 
     printf("\n-- Let's have a look at the generated array --\n");
     printf("Running time \n");
@@ -528,13 +484,12 @@ int main(int argc, char **argv){
     // OK, all performance comparisons and computations are made but let's make
     // sure we actually get the appropriate results.
     //-------------------------------------------------------------------------
-
     printf("-- Test for equality of the arrays --\n");
     if(c1 == c2 && c1 == c3 && c1 == c4)
         printf("  - All have the same size :)\n");
     else {
-        printf("  - The ind_val arrays don't have the same size ! "
-               "Stopping...\n");
+        printf("  - The ind_val arrays don't have the same size (%d %d %d %d)!"
+               " Stopping...\n", c1, c2, c3, c4);
 
         free(ind_val1);
         free(ind_val2);
@@ -544,12 +499,20 @@ int main(int argc, char **argv){
         return 12;
     }
 
+    // Let's see if values are the same
+    eq = 1;
+
+    for(i = 0; i < c1; i++){
+        if(ind_val1[i] != ind_val2[i])
+            printf("Erreur à l'indice %d , %d != %d !!\n", i, ind_val1[i], ind_val2[i]);
+    }
+
     for(i = 0; i < c1; i++)
         eq = eq && (ind_val1[i] == ind_val2[i] && ind_val1[i] == ind_val3[i])
                 && (ind_val1[i] == ind_val4[i]);
 
     if(eq)
-        printf("  - All have the same value :D :D s\n");
+        printf("  - All have the same values :D :D \n");
     else {
         printf("  - The ind_val arrays don't have the same values ! "
                "Stopping...\n");
@@ -571,7 +534,7 @@ int main(int argc, char **argv){
 
     printf("  - Vectorized realloc against our naive simple_realloc: %f \n",
            p_vect);
-    printf("  - Vectorized realloc against our naive simple_realloc "
+    printf("  - Vectorized realloc (multi-threaded) against our naive simple_realloc "
            "(multi-threaded): %f \n", p_vect_bis);
     printf("  - Multi-threaded against mono-threaded: %f \n", p_parrallel);
     printf("  - Multi-threaded against mono-threaded (vectorized): %f \n",

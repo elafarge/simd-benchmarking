@@ -59,7 +59,7 @@ def run_benchmark(binary_name, smpls):
         benchmark.append(run_step(binary_name, n))
 
     # Let's dump the results into a good old CSV file
-    with open("./benchmark.csv", 'w', newline='') as f:
+    with open("./results/benchmark.csv", 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(benchmark)
 
