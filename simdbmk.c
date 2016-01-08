@@ -91,7 +91,9 @@ int* generate_array(int n, int a, int b){
     int i;
 
     // Let's create the array
-    int *res = aligned_alloc(32, sizeof(int) * n);
+    int *res;
+
+    posix_memalign((void**) &res, 32, sizeof(int) * n);
 
     // Let's seed the random number generator using the current time
     srand(time(NULL));
@@ -113,6 +115,11 @@ void print_array(int* U, int n){
             printf("%d, ", U[i]);
     }
     printf("]\n");
+}
+
+long tdiff_micros(struct timespec t0, struct timespec t1){
+    return (long)(t1.tv_sec - t0.tv_sec)*1000000 +
+           (t1.tv_nsec - t0.tv_nsec)/1000;
 }
 
 /**
@@ -232,7 +239,7 @@ void* find_threadable(void* args){
     struct thread_data* targs;
     int *c;
 
-    clock_t t0;
+    // clock_t t0;
 
     targs = (struct thread_data*) args;
     U = targs->U;
@@ -244,11 +251,7 @@ void* find_threadable(void* args){
 
     c = malloc(sizeof(int));
 
-    t0 = clock();
-
     *c = find(U, i_start, i_end, i_step, val, ind_val);
-    printf("It took %d µs for find to run from %d to %d \n",
-            (clock() - t0)*1000000/CLOCKS_PER_SEC, i_start, i_end);
 
     return (void*) c;
 }
@@ -270,7 +273,7 @@ void* vect_find_threadable(void* args){
 
     c = malloc(sizeof(int));
 
-    *c = find(U, i_start, i_end, i_step, val, ind_val);
+    *c = vect_find(U, i_start, i_end, i_step, val, ind_val);
 
     return (void*) c;
 }
@@ -280,8 +283,6 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     int n_threads, i, j, c, min, l;
     int *partial_count;
     int ***ind_vals;
-
-    clock_t t1, t2, t3, t1_5;
 
     // A pointer on the find function to use
     void* (*find_routine)(void*);
@@ -317,13 +318,12 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     } else
         gc = NULL;
 
-    t1 = clock();
 
     for(i = 0; i < n_threads; i++){
         attr[i].U = U;
-        // attr[i].i_start = i;
-        // attr[i].i_end = i_end;
-        // attr[i].i_step = n_threads;
+        attr[i].i_start = i;
+        attr[i].i_end = i_end;
+        attr[i].i_step = n_threads;
         attr[i].i_start = i_start + (i_end - i_start)/n_threads * i;
         attr[i].i_end = min(i_start + (i_end - i_start)/n_threads * (i + 1),
                             i_end);
@@ -337,7 +337,7 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
         pthread_create(&thread[i], NULL, find_routine,
                        (void *)((struct thread_data*) &attr[i]));
     }
-    t1_5 = clock();
+
     // Let's just wait for our threads to finish no matter the reason
     // And let's also initialize pointers for the single array creation
     for(i = 0; i < n_threads; i++){
@@ -345,8 +345,6 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
         s[i] = *partial_count;
     }
     free(partial_count);
-
-    t2 = clock();
 
     // Let's prepare the final data structures
     c = 0;
@@ -369,20 +367,12 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     free(gc);
     free(ind_vals);
 
-    t3 = clock();
-
-    printf("Find time (total): %dµs (%d starting), Regroup time: %dµs, Ratio: %f\n",
-            (long)(t2-t1)*1000000 / CLOCKS_PER_SEC,
-            (long)(t1_5-t1)*1000000 / CLOCKS_PER_SEC,
-            (long)(t3-t2)*1000000 / CLOCKS_PER_SEC,
-            (long)(t3-t2)*1000000 / CLOCKS_PER_SEC /
-            (long)(t2-t1)/1000000 * CLOCKS_PER_SEC);
-
     return c;
 }
 
 int main(int argc, char **argv){
-    clock_t t0, t1, t2, t3, t4, t5, t6, t7;
+    struct timespec t0, t1, t2, t3, t4, t5, t6, t7;
+    long d1, d2, d3, d4;
     int n, a, b, i, lookup_value, k, c1, c2, c3, c4, c5, c6, eq;
     float p_vect, p_parrallel, p_parrallel_vect, p_vect_bis;
     int *ind_val1, *ind_val2, *ind_val3, *ind_val4, *ind_val5, *ind_val6;
@@ -417,41 +407,37 @@ int main(int argc, char **argv){
 
 
     printf("\n-- Let's have a look at the generated array --\n");
-    printf("Running time \n");
 
     printf("-- Ok let's see where %d is in the array --\n", lookup_value);
-    t0 = clock();
+    clock_gettime(CLOCK_MONOTONIC, &t0);
     c1 = find(test_array, 0, n, 1, lookup_value, &ind_val1);
-    t1 = clock();
-    printf("Time elapsed: %ld microseconds\n\n",
-            (long)(t1-t0)*1000000 / CLOCKS_PER_SEC);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    d1 = tdiff_micros(t0, t1);
+    printf("Time elapsed: %ld microseconds\n\n", d1);
 
     printf("-- Ok let's see where %d is in the array... vectorially --\n",
             lookup_value);
-    t2 = clock();
+    clock_gettime(CLOCK_MONOTONIC, &t2);
     c2 = vect_find(test_array, 0, n, 1, lookup_value, &ind_val2);
-    t3 = clock();
-    printf("Time elapsed: %ld microseconds\n\n",
-            (long)(t3-t2)*1000000 / CLOCKS_PER_SEC);
+    clock_gettime(CLOCK_MONOTONIC, &t3);
+    d2 = tdiff_micros(t2, t3);
+    printf("Time elapsed: %ld microseconds\n\n", d2);
 
     printf("-- Ok let's see where %d is in the array... using a parrallelized "
            "version of the unthreaded approach --\n", lookup_value);
-    t4 = clock();
+    clock_gettime(CLOCK_MONOTONIC, &t4);
     c3 = thread_find(test_array, 0, n, 1, lookup_value, &ind_val3, -1, 0);
-    t5 = clock();
-    printf("Time elapsed: %ld microseconds\n\n",
-            (long)(t5-t4)*1000000 / CLOCKS_PER_SEC);
+    clock_gettime(CLOCK_MONOTONIC, &t5);
+    d3 = tdiff_micros(t4, t5);
+    printf("Time elapsed: %ld microseconds\n\n", d3);
 
     printf("-- Ok let's see where %d is in the array... using a parrallelized "
            "version of the vectorial unthreaded approach --\n", lookup_value);
-    printf("Note that the performance gain won't be as high as before because "
-           "of the last step whose complexity is O(n) where we transform the "
-           "partial index lists into a single one.\n");
-    t6 = clock();
+    clock_gettime(CLOCK_MONOTONIC, &t6);
     c4 = thread_find(test_array, 0, n, 1, lookup_value, &ind_val4, -1, 1);
-    t7 = clock();
-    printf("Time elapsed: %ld microseconds\n\n",
-           (long)(t7-t6)*1000000 / CLOCKS_PER_SEC);
+    clock_gettime(CLOCK_MONOTONIC, &t7);
+    d4 = tdiff_micros(t6, t7);
+    printf("Time elapsed: %ld microseconds\n\n", d4);
 
     if(k >= 0){
         printf("Ok, now let's just check that introducing a factor k limiting "
@@ -527,18 +513,19 @@ int main(int argc, char **argv){
 
     printf("\n-- Performance factors --\n");
 
-    p_vect = ((float)(t1-t0))/((float)(t3-t2));
-    p_parrallel = ((float)(t1-t0))/((float)(t5-t4));
-    p_parrallel_vect = ((float)(t1-t0))/((float)(t7-t6));
-    p_vect_bis = ((float)(t5-t4))/((float)(t7-t6));
+    p_vect = ((float)d1)/d2;
+    p_parrallel = ((float)d1)/d3;
+    p_parrallel_vect = ((float)d1)/d4;
+    p_vect_bis = ((float)d3)/d4;
 
-    printf("  - Vectorized realloc against our naive simple_realloc: %f \n",
+    printf("  - Vectorized find against our scalar find: %f \n",
            p_vect);
-    printf("  - Vectorized realloc (multi-threaded) against our naive simple_realloc "
-           "(multi-threaded): %f \n", p_vect_bis);
-    printf("  - Multi-threaded against mono-threaded: %f \n", p_parrallel);
-    printf("  - Multi-threaded against mono-threaded (vectorized): %f \n",
-            p_parrallel_vect);
+    printf("  - Vectorized find (multi-threaded) against our scalar find "
+           "(in its multi-threaded variant too): %f \n", p_vect_bis);
+    printf("  - Multi-threaded against mono-threaded (both scalar): %f \n",
+            p_parrallel);
+    printf("  - Multi-threaded and vectorized against mono-threaded scalar "
+           "find: %f \n", p_parrallel_vect);
 
 
     //-------------------------------------------------------------------------
@@ -549,11 +536,8 @@ int main(int argc, char **argv){
     printf("\n -- Simple output for benchmarking scripts -- \n\n");
     printf("T_NAIVE T_VECT T_MT_NAIVE T_MT_VECT PERF_VECT PERF_VECT_BIS "
            "PERF_MT PERF_MT_VECT \n");
-    printf("%d %d %d %d %f %f %f %f\n", (long)(t1-t0)*1000000 / CLOCKS_PER_SEC,
-           (long)(t3-t2)*1000000 / CLOCKS_PER_SEC,
-           (long)(t5-t4)*1000000 / CLOCKS_PER_SEC,
-           (long)(t7-t6)*1000000 / CLOCKS_PER_SEC,
-           p_vect, p_vect_bis, p_parrallel, p_parrallel_vect);
+    printf("%ld %ld %ld %ld %f %f %f %f\n", d1, d2, d3, d4, p_vect, p_vect_bis,
+           p_parrallel, p_parrallel_vect);
 
     free(ind_val1);
     free(ind_val2);
