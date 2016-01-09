@@ -1,6 +1,5 @@
 *.swp
 *.o
 *.out
-simdbmk
-results
-results/*
+gcc_build
+gcc_build/*
