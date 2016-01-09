@@ -20,6 +20,8 @@
  * ============================================================================
  */
 
+#define _XOPEN_SOURCE 600
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -27,100 +29,13 @@
 #include <immintrin.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <argp.h>
 
-// Our finely crafted max macro
-#define min(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a < _b ? _a : _b; })
+#include "utilities.h"
+#include "cli_arguments.h"
 
 // Global count and max global count
 int *gc = NULL;
 int mgc;
-
-// Argument parsing related code
-const char *argp_program_version = "SIMDerizing benchmark";
-const char *argp_program_bug_address = "<etienne.lafarge@mines-paristech.fr>, "
-                                       "<vincent.villet@mines-paristech.fr>";
-static char doc[] = "A simple C program to benchmark the performance gain "
-                    "obtained using SIMD instructions and parrallel computing "
-                    "in memory movement algorithms.";
-static char args_doc[] = "";
-static struct argp_option options[] = {
-    { "size", 'n', "COUNT", OPTION_ARG_OPTIONAL, "The size of the array of "
-        "generated random integers (default: 1,000,000)."},
-    { "min", 'a', "COUNT", OPTION_ARG_OPTIONAL, "The smallest int of the "
-        "randomly generated range of ints (default: 0)"},
-    { "max", 'b', "COUNT", OPTION_ARG_OPTIONAL, "The highest int of the "
-        "randomly generated range of ints (default: 1000)"},
-    { "limit-search", 'k', "COUNT", OPTION_ARG_OPTIONAL, "Limits the search "
-        "to the first k occurences found (default: -1 i.e. no limit)"},
-    { "lookup", 'f', "COUNT", OPTION_ARG_OPTIONAL, "The value to search for "
-        "(must be between a and b, defaults to 12)."}
-};
-
-struct arguments {
-    int n;
-    int a;
-    int b;
-    int k;
-    int f;
-};
-
-static error_t parse_opt(int key, char *arg, struct argp_state *state) {
-    struct arguments *arguments = state->input;
-    switch (key) {
-        case 'n': arguments->n = arg ? atoi (arg) : 1000000; break;
-        case 'a': arguments->a = arg ? atoi (arg) : 0; break;
-        case 'b': arguments->b = arg ? atoi (arg) : 100; break;
-        case 'k': arguments->k = arg ? atoi (arg) : -1; break;
-        case 'f': arguments->f = arg ? atoi (arg) : 12; break;
-        case ARGP_KEY_ARG: return 0;
-        default: return ARGP_ERR_UNKNOWN;
-    }
-    return 0;
-}
-
-static struct argp argp = { options, parse_opt, args_doc, doc};
-
-/**
- * A function generating an n-size array of random integers between a and b
- */
-int* generate_array(int n, int a, int b){
-    int i;
-
-    // Let's create the array
-    int *res;
-
-    posix_memalign((void**) &res, 32, sizeof(int) * n);
-
-    // Let's seed the random number generator using the current time
-    srand(time(NULL));
-
-    // And let's fill up the array in a vectorial way
-    for(i = 0; i < n; i++)
-        res[i] = rand() % (b - a + 1) + a;
-
-    return res;
-}
-
-void print_array(int* U, int n){
-    int i;
-    printf("[");
-    for(i = 0; i < n; i++){
-        if(i == n - 1)
-            printf("%d", U[i]);
-        else
-            printf("%d, ", U[i]);
-    }
-    printf("]\n");
-}
-
-long tdiff_micros(struct timespec t0, struct timespec t1){
-    return (long)(t1.tv_sec - t0.tv_sec)*1000000 +
-           (t1.tv_nsec - t0.tv_nsec)/1000;
-}
 
 /**
  * Looks for val in U between the indexes i_start and i_end and jumping by
@@ -143,7 +58,7 @@ long tdiff_micros(struct timespec t0, struct timespec t1){
  * pointer, we need a pointer on a pointer".
  */
 int find(int *U, int i_start, int i_end, int i_step, int val, int **ind_val){
-    int i, ret;
+    int i;
     int c = 0;
 
     // So we have no results so far, let's have int_val point to nothing in the
@@ -217,11 +132,6 @@ int vect_find(int *U, int i_start, int i_end, int i_step, int val,
     return c;
 }
 
-int get_number_of_cores(){
-    // Works only on Linux with GCC/glibc, relies on unistd.h
-    return sysconf(_SC_NPROCESSORS_ONLN);
-}
-
 struct thread_data{
     int *U;
     int i_start;
@@ -238,8 +148,6 @@ void* find_threadable(void* args){
     int **ind_val;
     struct thread_data* targs;
     int *c;
-
-    // clock_t t0;
 
     targs = (struct thread_data*) args;
     U = targs->U;
@@ -377,34 +285,25 @@ int main(int argc, char **argv){
     float p_vect, p_parrallel, p_parrallel_vect, p_vect_bis;
     int *ind_val1, *ind_val2, *ind_val3, *ind_val4, *ind_val5, *ind_val6;
     int* test_array;
-    struct arguments arguments;
+    struct arguments *arguments;
 
     //-------------------------------------------------------------------------
     // BEGINNING OF ARGUMENTS PARSING
     //-------------------------------------------------------------------------
-    /* Default values. */
-    arguments.n = 1000000;
-    arguments.a = 0;
-    arguments.b = 100;
-    arguments.k = -1;
-    arguments.f = 12;
+    arguments = parse_cli_arguments(argc, argv);
 
-    /* Parse our arguments; every option seen by parse_opt will be
-       reflected in arguments. */
-    argp_parse (&argp, argc, argv, 0, 0, &arguments);
+    n = arguments->n;
+    a = arguments->a;
+    b = arguments->b;
+    k = arguments->k;
+    lookup_value = arguments->f;
 
-    n = arguments.n;
-    a = arguments.a;
-    b = arguments.b;
-    k = arguments.k;
-
-    lookup_value = arguments.f;
+    free(arguments);
     //-------------------------------------------------------------------------
     // END OF ARGUMENTS PARSING
     //-------------------------------------------------------------------------
     printf("\n-- Let's generate a test array of size %d --\n", n);
     test_array = generate_array(n, a, b);
-
 
     printf("\n-- Let's have a look at the generated array --\n");
 
