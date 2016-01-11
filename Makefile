@@ -14,7 +14,7 @@ gcc_build/main.o: main.c
 	gcc -std=c99 -o gcc_build/main.o -c main.c
 
 gcc_build/thread_find.o: thread_find.c
-	gcc -std=c99 -o gcc_build/thread_find.o -c thread_find.c
+	gcc -std=c99 -mavx2 -o gcc_build/thread_find.o -c thread_find.c
 
 gcc_build/find.o: find.c
 	gcc -std=c99 -mavx2 -o gcc_build/find.o -c find.c
