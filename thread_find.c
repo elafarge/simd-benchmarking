@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <immintrin.h>
+#include <stdio.h>
 
 #include "find.h"
 #include "utilities.h"
@@ -89,7 +90,7 @@ void* vect_find_threadable(void* args){
     struct thread_data* targs;
     int *c;
 
-    __m256i cmp_vect, cmp_res;
+    __m256i cmp_vect __attribute__((aligned (32))), cmp_res __attribute__((aligned (32)));
 
     targs = (struct thread_data*) args;
     U = targs->U;
@@ -146,7 +147,7 @@ void* vect_find_threadable(void* args){
 
 int thread_find(int *U, int i_start, int i_end, int i_step, int val,
                 int **ind_val, int k, int ver){
-    int n_threads, i, c, l;
+    int n_threads, i, c, l, chunk_size;
     int *partial_count;
     int ***ind_vals;
 
@@ -187,12 +188,16 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
 
     for(i = 0; i < n_threads; i++){
         attr[i].U = U;
-        // TODO FIXME we have to round that up to make sure our subarrays are
+        // We have to round that up to make sure our subarrays are
         // aligned too (that's why we get a segfault when the number of threads
         // we launch is odd.
-        attr[i].i_start = i_start + (i_end - i_start)/n_threads * i;
-        attr[i].i_end = min(i_start + (i_end - i_start)/n_threads * (i + 1),
-                            i_end);
+        chunk_size = (i_end - i_start)/n_threads;
+        chunk_size -= (chunk_size % 8);
+        attr[i].i_start = i_start + chunk_size * i;
+        if(i < n_threads - 1)
+            attr[i].i_end = i_start + chunk_size * (i + 1);
+        else
+            attr[i].i_end = i_end;
         attr[i].i_step = i_step;
         attr[i].val = val;
         ind_vals[i] = malloc(sizeof(int*));
@@ -226,9 +231,9 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     // ... if we don't have a k-factor... otherwise we'll
     l = 0;
     for(i = 0; i < n_threads; i++){
-        if(c - l + 1 > 0)
-            memcpy(*ind_val + l, *ind_vals[i], min(s[i], c - l + 1)*sizeof(int));
-        l += s[i];
+        if(c - l > 0)
+            memcpy(*ind_val + l, *ind_vals[i], min(s[i], c - l)*sizeof(int));
+        l += min(s[i], c - l);
         free(*ind_vals[i]);
     }
 

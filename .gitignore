@@ -3,3 +3,4 @@
 *.out
 gcc_build
 gcc_build/*
+results/*

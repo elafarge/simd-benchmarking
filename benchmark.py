@@ -26,9 +26,9 @@ def run_step(binary_name, n):
     non-zero exit code
     """
     print("Running {0} with n={1}".format(binary_name, n))
-    p = subprocess.Popen([binary_name, "--size={0}".format(n)],
+    p = subprocess.Popen([binary_name + " --size={0}".format(n)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE)
+            stderr=subprocess.PIPE, shell=True)
 
     out, err = p.communicate()
     rc = p.returncode
@@ -56,6 +56,7 @@ def run_benchmark(binary_name, smpls):
     """
     benchmark = []
     for n in smpls:
+        print(n)
         benchmark.append(run_step(binary_name, n))
 
     # Let's dump the results into a good old CSV file
@@ -83,10 +84,11 @@ def run_benchmark(binary_name, smpls):
         "Multi-threaded +Vectorized"], loc="upper left")
 
     indexplt = fig.add_subplot(122)
+    indexplt.set_xscale('log');
     indexplt.loglog(n, bcm_np[:, 4])
     indexplt.loglog(n, bcm_np[:, 5])
     indexplt.loglog(n, bcm_np[:, 6])
-    indexplt.loglog(n, bcm_np[:, 7])
+    indexplt.plot(n, bcm_np[:, 7])
 
     indexplt.set_xlabel("n")
     indexplt.set_ylabel("Performance Gain")
@@ -104,10 +106,12 @@ if __name__ == "__main__":
              '10^k, where k is an element of the list. It puts the results of '
              'the benchmark in "./benchmark.csv" and displays a graph using '
              'matplotlib.')
-    parser.add_argument('powers', metavar='Ps', type=float, nargs='+',
+    parser.add_argument('powers', metavar='Ps', type=float, nargs='*',
             help='The list of powers of ten to run simdbmk with as an '
                 'argument for the size of the generated array (in case the '
                 'power of ten is not an integer it will be floored).')
     args = parser.parse_args()
-    run_benchmark("./simdbmk", [math.floor(10**p) for p in args.powers])
+    if not args.powers:
+        args.powers = [x/100.0 for x in range(500, 905, 5)]
+    run_benchmark("gcc_build/simdbmk", [math.floor(10**p) for p in args.powers])
 

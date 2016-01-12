@@ -1,110 +1,54 @@
-# simd-benchmarking
+# simd-benchmarking #
 A simple C program along with a Python script aiming at benchmarking SIMD and
 multi-threaded computing versus a naïve, mono-threaded implementation.
 
-## Compiling instructions
+## Compiling instructions ##
 
-To compile the C program with GCC, simply run
+To compile the C program with GCC, use make (in order to avoid compiling each
+file manually). The command to run is `make`, simply `make`
+
+This will create a binary named `simdbmk` using GCC as a C compiler. All the
+generated object files and the `simdbmk` binary will end up in a `./gcc_build`
+folder. The executable produced can be run with a various set of options that
+can be listed using the
 
 ```shell
-gcc simdbmk.c -msse -lpthread -o simdbmk
+./gcc_build/simdbmk --help
 ```
 
-This will create a binary named `simbdk` in the current folder. This binary can
-be run with a various set of options that can be listed using the
+For instance, to run the program with a `test_array` size of `100 000 000` and
+test that introducing a `k`-factor (see below) works as expected, one could
+type (to test with `k=500 000`) :
 
-```shell
-./simdbmk --help
+```
+./simdbmk -n100000000 -k500000
 ```
 
 ## Program description
 
-Here's a basic description of what the program does:
-
 ### Goals
 
 Given a *vector* of integers `U`, the core of the program is a `find` function
-that returns the number of occurences of a given integer `val` between the
+that returns the number of occurrences of a given integer `val` between the
 indexes `a_start` and `a_end` in the array. `find` will also allocate an array
 containing the indexes where `val` was found in the array. By design, we were
 asked to use standard C-arrays and only those (in particular, using linked
-lists would indeed be much more efficient here but doing it with arrays makes
-the use of SIMD functionnalities of processors to manipulate memory much more
-efficient).
+lists would indeed be much more efficient to avoid memory reallocations but it
+would also multiply the size of the result "array" by three).
 
-#### Dynamic reallocation of the result array is our main concern.
-
-The algorithm for `find` is rather simple on the paper: we have no choice but
-to run through every element of the array and compare it to the seeked value.
-But what if we got a match ? Well, we need to increase our counter of matches
-and... add the index of the match to our array... except that it is an array
-and has therefore a fixed size. Here comes the performance-critical bit of our
-application: we'll need to reallocate the entire array of results.
-
-**There's a built-in C function for that**: `realloc`. Using it gives us
-excellent results. After digging into the function's code (put a link there),
-it turns out that it's using every possible optimisation: at first it checks if
-there's enough space available in memory right after the preexisting array and
-if so, it just reserve the next 4 bytes to welcome our new index: it's an
-awesome constant-time operation and from the couple of tests we conducted, it
-seems to happen most of the time and results in a tremendous performance
-improvement. If it can do so, then a reallocation takes place which, given that
-the distribution of integers in U is uniform, has a `O(m)` complexity where `m`
-is the size of `U`. To perform that reallocation, the built-in `realloc`
-function leverages SIMD capacities, which doesn't leave much room for
-improvement on our side.
-
-#### Creating a naive version of `realloc`
-
-For the purpose of our study, we therefore re-implemented a totally naive
-version of realloc, which does a copy of the whole array all the time and
-copies the element one at a time. We named that one `simple_realloc`.
-
-#### SIMDerizing our `simple_realloc` to make it a bit more efficient
-
-Based on that naïve version of `realloc`, we built another one that copies the
-elements 4 by 4, leveraging SIMD capabilities of our processor. It's been
-called `vect_realloc` and the `vect_find` implementation of `find` uses it.
-
-#### Parallelizing the whole thing to boost copy performance
-
-Not only our modern processors have some basic (but yet pretty efficient)
-vectorizing capabilities that can help us boost the performance of many
-algorithm but they also cointain multiple cores (4 physical cores on our `i7`
-test processor and 8 virtual ones since it has hyperthreading capabilities).
-Therefore, we wrote two implementations of `find` that can be run on multiple
-cores (they're just `pthread` compliant functions).
-
-A wrapper for these named `thread_find` is going to take care of starting the
-threads (we'll start `c` threads where `c` designated the number of cores seen
-by the system, we're aware that `c+1` is usually the chosen value but it
-doesn't have a huge academic importance here) over different chunks of the
-initial array (each thread is going to take care of the `c*k+i` indexed
-elements where `i` varies between `0` and `c` (excluded) and is different for
-each started thread.
-
-As the end, the wrapper groups the `c` array produced by each thread. In order
-to obtain the exact same results as for the previous versions of `find` we
-wanted the result array to be ordered as well. Using a standard sorting
-algorithm (like the quick-sort) would result a complexity of `O(n*log(n))` but
-we managed to narrow it down to `O(n)` by taking into account the fact that
-each subarray was already sorted.
-
-#### Program description
-
-What the program does when it's ran is pretty clear since the steps are printed
-on `stdout` as they are ran. We'll sum it up there quickly:
+### Step performed
 
 * Generate a random array of integers containing values between `a` and `b`
 * Run the naive `find` on it
 * Run it's vectorial counterpart and measure the performance gain.
-* Run the non vectorial parralel version of `find` and compare it against the
+* Run the non vectorial parallel version of `find` and compare it against the
   naive one
 * Run the vectorized, parallel version of `find` and compare it against the
   naive `find` as well as the non-vectorial, parallel version of `find`
+* If `k` has been set on the command-line, test the two versions of
+  `thread_find()` using that `k`-factor.
 
-
-## The lab environment for the tests
+## Lab environment for the tests
 
 There's one variable that we mainly want to play with during our tests: the
 number of elements in the initial array `U`, therefore we've made it a
@@ -130,22 +74,28 @@ python ./benchmark.py 3 3.5 4
 In that example, `simdbmk` will be ran for `n = 1000`, `n = 10^3.5` and `n =
 10000`.
 
+By default, the benchmarking program is run for steps of 0.05 between 5 and 9
+so be aware **that you'll need 4 Gigs of RAM available to run the program**.
+
+#### Dependencies
+
+You'll need to have the python packages `numpy` and `matplotlib` installed on
+your machine. You can use `pip` (`pip install numpy matplotlib`) to install
+them but it's also very likely that your Linux distributions has packages of
+its own for those two python library. For instance, on Ubuntu, it's slightly
+wiser to use `apt-get install python-matplotlib python-numpy`.
+
 ### Mind the RAM
 
 Before running the program for extremely high values of `n`, please consider
 the available amount of RAM that you have. Basically, the element that will
-determing the amount of memory needed by our program is `U`. If you don't want
+determine the amount of memory needed by our program is `U`. If you don't want
 to kill yourself when your computer starts swapping, you therefore have to make
 sure that `#(U)*sizeof(int)` stays inferior to the available amount of RAM.
 
 Let's assume we don't want to go over 4GB of RAM occupation (our testing
 computer has 8 gigs of RAM, this value seems fair) , since an `int` weighs 4
-bytes, we can put up to **1 billion** ints in `U`.
-
-Also, mind that it take around **1 hour** for the program to run on our test
-machine with `n = 10⁸` (so it should take around 11 hours to run it with `n =
-10^9`, the compelxity being O(n). We never tried that honestly... the interest
-of it is rather limited).
+bytes, we can put up to **1 billion** integers in `U`.
 
 ## Results
 
