@@ -81,13 +81,14 @@ def run_benchmark(binary_name, smpls):
     timeplt.set_title("Computation time")
 
     timeplt.legend(["Naive", "Vectorized", "Multi-threaded",
-        "Multi-threaded +Vectorized"], loc="upper left")
+        "Multi-threaded + Vectorized"], loc="upper left")
 
     indexplt = fig.add_subplot(122)
-    indexplt.set_xscale('log');
-    indexplt.loglog(n, bcm_np[:, 4])
-    indexplt.loglog(n, bcm_np[:, 5])
-    indexplt.loglog(n, bcm_np[:, 6])
+    indexplt.set_xscale('log')
+    indexplt.set_yscale('linear')
+    indexplt.plot(n, bcm_np[:, 4])
+    indexplt.plot(n, bcm_np[:, 5])
+    indexplt.plot(n, bcm_np[:, 6])
     indexplt.plot(n, bcm_np[:, 7])
 
     indexplt.set_xlabel("n")
@@ -95,8 +96,12 @@ def run_benchmark(binary_name, smpls):
     indexplt.set_title("Performance gain obtained with SIMD and "
                        "multi-threading")
 
-    indexplt.legend(["Perf. vect.", "Perf. vect. bis", "Perf. MT",
-        "Perf. Vect.+ MT"], loc="lower right")
+    indexplt.legend(["Tvect/Tnaive", "Tmt_vect/Tmt", "Tmt/Tnaive",
+        "Tmt_vect/Tnaive"], loc="lower right")
+
+    fig.suptitle("Results of the benchmark on an Intel-Core i7-4702MQ quad-"
+                 "core processor with hyperthreading with a 2.20GHz frequency."
+                 " (Vectorial implementations use 256bits registers)")
 
     plt.show()
 

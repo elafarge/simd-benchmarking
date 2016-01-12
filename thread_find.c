@@ -90,7 +90,8 @@ void* vect_find_threadable(void* args){
     struct thread_data* targs;
     int *c;
 
-    __m256i cmp_vect __attribute__((aligned (32))), cmp_res __attribute__((aligned (32)));
+    __m256i cmp_vect __attribute__((aligned (32))),
+            cmp_res  __attribute__((aligned (32)));
 
     targs = (struct thread_data*) args;
     U = targs->U;

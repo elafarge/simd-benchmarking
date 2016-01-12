@@ -73,7 +73,8 @@ int vect_find(int *U, int i_start, int i_end, int i_step, int val,
     int i, j, s;
     int c = 0;
 
-    __m256i cmp_vect, cmp_res;
+    __m256i cmp_vect __attribute__ ((aligned(32))),
+            cmp_res  __attribute__ ((aligned(32)));
 
     // Let's build our comparison vector
     cmp_vect = _mm256_set1_epi32(val);
