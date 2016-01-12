@@ -82,12 +82,12 @@ so be aware **that you'll need 4 Gigs of RAM available to run the program**.
 You'll need to have the python packages `numpy` and `matplotlib` installed on
 your machine. You can use `pip` (`pip install numpy matplotlib`) to install
 them but it's also very likely that your Linux distributions has packages of
-its own for those two python library. For instance, on Ubuntu, it's slightly
+its own for those two python libraries. For instance, on Ubuntu, it's slightly
 wiser to use `apt-get install python-matplotlib python-numpy`.
 
 ### Mind the RAM
 
-Before running the program for extremely high values of `n`, please consider
+Before running the program for extremely large values of `n`, please consider
 the available amount of RAM that you have. Basically, the element that will
 determine the amount of memory needed by our program is `U`. If you don't want
 to kill yourself when your computer starts swapping, you therefore have to make
@@ -99,7 +99,26 @@ bytes, we can put up to **1 billion** integers in `U`.
 
 ## Results
 
-<TODO>
+We ran a benchmark with different array sizes. Here's a graph showing how the
+performance response:
+
+![alt text](./images/performance_graphs.png "Evolution of performance with the
+size of the input array.")
+
+As can be expected, the running time is proportional to the size of the input
+array. The performance ratios seem to converge around 2 for the vectorial
+implementation, 4 for the multithreaded version (which was to be expected since
+we have 4 cores. We can note that hyperthreading doesn't have a huge influence
+here). Finally with the multithreaded vectorial approach, we get a `x8.5`
+performance gain, which is quite nice.
+
+When the sought element is not in the array though, the performance factor for
+the multithreaded vectorial approach reaches 12. This can be explained by the
+fact that the gain from going vectorial is lost when an element is found. In
+addition to that the `realloc()` sometimes involves a copy of the whole result
+array in memory. Using linked lists instead of standard C arrays would probably
+have been a better choice, but the memory occupied by the result would have
+then been multiplied by 3.
 
 ## Questions about different aspects of the program
 
@@ -107,7 +126,7 @@ Here are some questions that we had to reply to regarding that project:
 
 ### Generic questions about the naive implementations
 
-#### We do we need a pointer of pointer for `ind_val`
+#### Why do we need a pointer of pointer for `ind_val` ?
 
 What we need to do is populate an array, which is represented by a pointer
 (*int_val) and a size (called c and returned by the function find). At first
