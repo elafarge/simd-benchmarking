@@ -23,6 +23,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <immintrin.h>
 
 #include "find.h"
 #include "utilities.h"
@@ -43,7 +44,7 @@ struct thread_data{
 void* find_threadable(void* args){
     // Arguments passing
     int *U;
-    int i_start, i_end, i_step, val ;
+    int i_start, i_end, i_step, val, i;
     int **ind_val;
     struct thread_data* targs;
     int *c;
@@ -58,17 +59,37 @@ void* find_threadable(void* args){
 
     c = malloc(sizeof(int));
 
-    *c = find(U, i_start, i_end, i_step, val, ind_val);
+    if(gc == NULL)
+        *c = find(U, i_start, i_end, i_step, val, ind_val);
+    else {
+        // Let's take the k-factor into account
+        *c = 0;
+
+        (*ind_val) = NULL;
+
+        for(i = i_start; i < i_end; i += i_step){
+            if(U[i] == val){
+                (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int));
+                (*ind_val)[*c] = i;
+                (*c)++;
+                (*gc)++;
+                if(*gc >= mgc)
+                    return (void*) c;
+            }
+        }
+    }
 
     return (void*) c;
 }
 
 void* vect_find_threadable(void* args){
     int *U;
-    int i_start, i_end, i_step, val;
+    int i_start, i_end, i_step, val, i, j, s;
     int **ind_val;
     struct thread_data* targs;
     int *c;
+
+    __m256i cmp_vect, cmp_res;
 
     targs = (struct thread_data*) args;
     U = targs->U;
@@ -80,7 +101,45 @@ void* vect_find_threadable(void* args){
 
     c = malloc(sizeof(int));
 
-    *c = vect_find(U, i_start, i_end, i_step, val, ind_val);
+    if(gc == NULL)
+        *c = vect_find(U, i_start, i_end, i_step, val, ind_val);
+    else {
+        *c = 0;
+        cmp_vect = _mm256_set1_epi32(val);
+
+        (*ind_val) = NULL;
+
+        for(i = i_start; i < i_end - 6; i += i_step * 8){
+            cmp_res = _mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i)));
+
+            if(!_mm256_movemask_epi8(cmp_res))
+                continue;
+
+            s = i + 8;
+            for(j = i; j < s; j++){
+                if(U[j] == val){
+                    (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int));
+                    (*ind_val)[*c] = j;
+                    (*c)++;
+                    (*gc)++;
+                    if(*gc >= mgc)
+                        return (void*) c;
+
+                }
+            }
+        }
+
+        for( ; i < i_end; i++){
+            if(U[i] == val){
+                (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int));
+                (*ind_val)[*c] = i;
+                (*c)++;
+                (*gc)++;
+                if(*gc >= mgc)
+                    return (void*) c;
+            }
+        }
+    }
 
     return (void*) c;
 }
@@ -128,6 +187,9 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
 
     for(i = 0; i < n_threads; i++){
         attr[i].U = U;
+        // TODO FIXME we have to round that up to make sure our subarrays are
+        // aligned too (that's why we get a segfault when the number of threads
+        // we launch is odd.
         attr[i].i_start = i_start + (i_end - i_start)/n_threads * i;
         attr[i].i_end = min(i_start + (i_end - i_start)/n_threads * (i + 1),
                             i_end);
@@ -155,16 +217,19 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     for(i = 0; i < n_threads; i++){
         c += s[i];
     }
-    if(k > 0 && c > k) // TODO truncate in the memcpy below if k is defined
+    if(k > 0 && c > k)
         c = k;
 
     (*ind_val) = malloc(sizeof(int) * c);
 
     // And now we just have to concatenate our arrays, so cool and fast
+    // ... if we don't have a k-factor... otherwise we'll
     l = 0;
     for(i = 0; i < n_threads; i++){
-        memcpy(*ind_val + l, *ind_vals[i], s[i]*sizeof(int));
+        if(c - l + 1 > 0)
+            memcpy(*ind_val + l, *ind_vals[i], min(s[i], c - l + 1)*sizeof(int));
         l += s[i];
+        free(*ind_vals[i]);
     }
 
     // Let's free our last resources
