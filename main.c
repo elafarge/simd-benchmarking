@@ -221,7 +221,7 @@ ANSI_STYLE_BOLD            " using different implementations of find: \n\n"
         free(ind_val5);
         free(ind_val6);
 
-        if(k == c5 && k == c6)
+        if( (k == c5 || c5 == c1) && (k >= c6 || c6 == c1))
             printf("       - " ANSI_COLOR_GREEN ANSI_STYLE_BOLD "The "
                    "k-factor works as expected" ANSI_COLOR_RESET
                    ANSI_STYLE_NO_BOLD", careful though, we have \n         "

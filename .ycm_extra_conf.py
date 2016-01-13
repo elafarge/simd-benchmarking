@@ -54,7 +54,7 @@ flags = [
 # a "-std=<something>".
 # For a C project, you would set this to something like 'c99' instead of
 # 'c++11'.
-'-std=c99',
+'-std=c11',
 '-mavx2',
 '-pthread',
 # ...and the same thing goes for the magic -x option which specifies the

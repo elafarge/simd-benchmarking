@@ -31,12 +31,9 @@ type (to test with `k=500 000`) :
 Given a *vector* of integers `U`, the core of the program is a `find` function
 that returns the number of occurrences of a given integer `val` between the
 indexes `a_start` and `a_end` in the array. `find` will also allocate an array
-containing the indexes where `val` was found in the array. By design, we were
-asked to use standard C-arrays and only those (in particular, using linked
-lists would indeed be much more efficient to avoid memory reallocations but it
-would also multiply the size of the result "array" by three).
+containing the indexes where `val` was found in the array.
 
-### Step performed
+### Steps performed
 
 * Generate a random array of integers containing values between `a` and `b`
 * Run the naive `find` on it

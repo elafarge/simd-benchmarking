@@ -23,6 +23,14 @@
 
 #include <immintrin.h>
 
+#define test_U_j(j) \
+    if(U[j] == val){ \
+        (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int)); \
+        (*ind_val)[c] = j; \
+        c++; \
+     }
+
+
 /**
  * Looks for val in U between the indexes i_start and i_end and jumping by
  * i_step at a time. It will return the number of found occurences of val and
@@ -53,16 +61,7 @@ int find(int *U, int i_start, int i_end, int i_step, int val, int **ind_val){
 
     // Ok let's start looking for things
     for(i = i_start; i < i_end; i += i_step){
-        if(U[i] == val){
-            // Let's make the array one inch bigger (one time the size of an
-            // int actually)
-            (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int));
-
-            // And put our current index into into that one
-            (*ind_val)[c] = i;
-
-            c++;
-        }
+        test_U_j(i)
     }
 
     return c;
@@ -70,11 +69,10 @@ int find(int *U, int i_start, int i_end, int i_step, int val, int **ind_val){
 
 int vect_find(int *U, int i_start, int i_end, int i_step, int val,
               int **ind_val){
-    int i, j, s;
+    int i;
     int c = 0;
 
-    __m256i cmp_vect __attribute__ ((aligned(32))),
-            cmp_res  __attribute__ ((aligned(32)));
+    __m256i cmp_vect __attribute__ ((aligned(32)));
 
     // Let's build our comparison vector
     cmp_vect = _mm256_set1_epi32(val);
@@ -88,32 +86,25 @@ int vect_find(int *U, int i_start, int i_end, int i_step, int val,
         // thanks to the condition on the for)
 
         // If the whole mask is null, no matching element: let's move forward
-        cmp_res = _mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i)));
-
-        if(!_mm256_movemask_epi8(cmp_res))
+        // mask = _mm256_movemask_epi8(_mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i))));
+        if(!_mm256_movemask_epi8(_mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i)))))
             continue;
 
         // Or else let's analyse things one piece at a time
-        s = i + 8;
-        for(j = i; j < s; j++){
-            if(U[j] == val){
-                // Let's put a chunk of 4 elements in a vector register
-                (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int));
-                (*ind_val)[c] = j;
-                c++;
-            }
-        }
+        test_U_j(i);
+        test_U_j(i + 1);
+        test_U_j(i + 2);
+        test_U_j(i + 3);
+        test_U_j(i + 4);
+        test_U_j(i + 5);
+        test_U_j(i + 6);
+        test_U_j(i + 7);
     }
 
     // Let's finish the job for the potentially remaining last few (3 at most)
     // elements
     for( ; i < i_end; i++){
-        if(U[i] == val){
-            // TODO: let's move this part in an inline function someday
-            (*ind_val) = realloc((*ind_val), (c + 1)*sizeof(int));
-            (*ind_val)[c] = i;
-            c++;
-        }
+        test_U_j(i);
     }
 
     return c;

@@ -29,6 +29,16 @@
 #include "find.h"
 #include "utilities.h"
 
+#define test_U_j_with_gc(j) \
+    if(U[j] == val){ \
+        (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int)); \
+        (*ind_val)[*c] = j; \
+        (*c)++; \
+        (*gc)++; \
+        if(*gc >= mgc) \
+            return (void*) c; \
+     }
+
 // Global count and max global count
 int *gc = NULL;
 int mgc;
@@ -69,14 +79,7 @@ void* find_threadable(void* args){
         (*ind_val) = NULL;
 
         for(i = i_start; i < i_end; i += i_step){
-            if(U[i] == val){
-                (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int));
-                (*ind_val)[*c] = i;
-                (*c)++;
-                (*gc)++;
-                if(*gc >= mgc)
-                    return (void*) c;
-            }
+            test_U_j_with_gc(i);
         }
     }
 
