@@ -123,29 +123,47 @@ Here are some questions that we had to reply to regarding that project:
 
 ### Generic questions about the naive implementations
 
+#### Define the `realloc()` function
+
+`realloc()` is a function from the standard library whose aim is to expand the
+memory allocated for an array. It's much smarter than the naïve implementation
+we could think of: if there's space available after the array, the expansion
+won't require a copy of the whole array. In addition to that, when a copy is
+required, it relies a lot on the Linux kernel's memory paging system as well as
+on SIMD extensions when the array to copy is aligned so that the copy takes a
+minimal amount of time.
+
+It takes as parameters:
+  * a pointer on the array to expand (from there, it will have a look at the
+    memory allocation how much size was allocated for that array)
+  * the desired allocated space after the expansion
+
+It's also possible to use `realloc()` to shrink the space allocated for the
+array.
+
 #### Why do we need a pointer of pointer for `ind_val` ?
 
 What we need to do is populate an array, which is represented by a pointer
 (*int_val) and a size (called c and returned by the function find). At first
 you'd think that just passing a pointer and make it change would be fine,
 but the point is on a function call, the arguments are copied in memory.
-Therefore, it's that copy of the pointer that will be modified by find, not
+Therefore, it's that copy of the pointer that will be modified by `find`, not
 the pointer itself. That's why we need to get a pointer pointing on that
 pointer: therefore the pointer gives us the address of the pointer pointing
 at the beginning of the array and we we can use this "address" to actually
-modify the array every time we call realloc.
+modify the array every time we call `realloc()`.
 
-In short the answer is: "because arguments get copied when a function is
+In short the answer is: "**because arguments get copied when a function is
 called so we need to use pointers, and since the argument itself is a
-pointer, we need a pointer on a pointer".
+pointer, we need a pointer on a pointer**".
 
 #### How to look only for even (resp. odd) positions in U ?
 
 That could simply be achieved by using the following values for `find`'s
 arguments:
-* `i_start = 0` (resp. `i_start = 1`)
-* `i_end = #(U)` (in both cases)
-* `i_step = 2` (in both cases)
+  * `i_start = 0` (resp. `i_start = 1`)
+  * `i_end = #(U)` (in both cases)
+  * `i_step = 2` (in both cases)
 
 #### Why would one want to do that ?
 
@@ -155,7 +173,11 @@ parameter actualy provides us with a good way to make our algorithm parallel:
 you just have to set `c = i_step = number of worker threads` and have `i_start
 = 0 ... i_step - 1` (one different value for each thread). That's not the only
 way (we could also split our array into `c` contiguous parts for instance) but
-that's one of them.
+that's one of them. This being said, we won't use that in our implementation of
+`thread_find()` because it's likely that every chunk will have to be fetched
+from memory into the L3 cache `n` times (where `n` is the number of threads)
+and this is also likely to trigger cache synchronisation between the L2 caches
+on each core, which would slow down the execution time.
 
 ### Questions about the multi-threaded approach
 
@@ -165,7 +187,23 @@ that's one of them.
 
 #### The k-factor, or how do we make our running threads talk to each other ?
 
-<TODO>
+In order to limit the search to `k` matches we have to make the threads "talk
+to each other". They all have to know how many matches have been found
+**globally**. For that, we introduced a global variable `gc` (for **g**lobal
+**c**ount) that is incremented every time a thread finds a match.
+
+Concurrent write access to this variable (the `gc++` part) must be prevented,
+as well as the `gc > k` part. We're using `mutextes` for that purpose:
+everytime a thread finds a match, it exits if `k` has already been reached.
+Otherwise, it adds the matches to the list of found occurences. **That's how we
+stop threads when the limit is reached.**
+
+Checking if the global counter has exceeded `k` and incrementing the former if
+not is a mutex locked operation.
+
+In order to avoid a performance drop when `k` isn't set, we're using two
+different pieces of code depending on whether or not `k` is set: if it's not,
+we don't perform the global counter check and incrementation part.
 
 ## Authors
 

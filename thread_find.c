@@ -29,19 +29,28 @@
 #include "find.h"
 #include "utilities.h"
 
+// Note that we perform the mutex unlocking operation ASAP here in order to
+// minimize the waiting time for potentially blocked threads.
 #define test_U_j_with_gc(j) \
     if(U[j] == val){ \
+        pthread_mutex_lock(&gc_lock); \
+        if(*gc >= mgc){ \
+            pthread_mutex_unlock(&gc_lock); \
+            pthread_exit((void*) c); \
+        } \
+        (*gc)++; \
+        pthread_mutex_unlock(&gc_lock); \
         (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int)); \
         (*ind_val)[*c] = j; \
         (*c)++; \
-        (*gc)++; \
-        if(*gc >= mgc) \
-            return (void*) c; \
      }
 
 // Global count and max global count
 int *gc = NULL;
 int mgc;
+
+// A mutex for *gc access
+pthread_mutex_t gc_lock;
 
 struct thread_data{
     int *U;
@@ -83,12 +92,12 @@ void* find_threadable(void* args){
         }
     }
 
-    return (void*) c;
+    pthread_exit((void*) c);
 }
 
 void* vect_find_threadable(void* args){
     int *U;
-    int i_start, i_end, i_step, val, i, j, s;
+    int i_start, i_end, i_step, val, i;
     int **ind_val;
     struct thread_data* targs;
     int *c;
@@ -120,72 +129,62 @@ void* vect_find_threadable(void* args){
             if(!_mm256_movemask_epi8(cmp_res))
                 continue;
 
-            s = i + 8;
-            for(j = i; j < s; j++){
-                if(U[j] == val){
-                    (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int));
-                    (*ind_val)[*c] = j;
-                    (*c)++;
-                    (*gc)++;
-                    if(*gc >= mgc)
-                        return (void*) c;
-
-                }
-            }
+            test_U_j_with_gc(i);
+            test_U_j_with_gc(i + 1);
+            test_U_j_with_gc(i + 2);
+            test_U_j_with_gc(i + 3);
+            test_U_j_with_gc(i + 4);
+            test_U_j_with_gc(i + 5);
+            test_U_j_with_gc(i + 6);
+            test_U_j_with_gc(i + 7);
         }
 
         for( ; i < i_end; i++){
-            if(U[i] == val){
-                (*ind_val) = realloc((*ind_val), (*c + 1)*sizeof(int));
-                (*ind_val)[*c] = i;
-                (*c)++;
-                (*gc)++;
-                if(*gc >= mgc)
-                    return (void*) c;
-            }
+            test_U_j_with_gc(i);
         }
     }
 
-    return (void*) c;
+    pthread_exit((void*) c);
 }
 
 int thread_find(int *U, int i_start, int i_end, int i_step, int val,
                 int **ind_val, int k, int ver){
     int n_threads, i, c, l, chunk_size;
     int *partial_count;
+    int *s; // The number of matches returned by each thread
     int ***ind_vals;
+    pthread_t *thread; // An array containing our threads
+    struct thread_data *attr;
 
     // A pointer on the find function to use
     void* (*find_routine)(void*);
 
     // Let's use the common n_cores + 1 rule which is supposed to give the best
     // results. The " +1 " is simply the main thread which will check if the
-    // number of occurences to find has been reached.
+    // number of occurences to find has been reached. (Also it's with the value
+    // that we managed to reach the highest performance with the best
+    // reproductability).
     n_threads = get_number_of_cores();
 
-    // It's all about splitting the problem into shifted chunks. For instance,
-    // if we need to go through all the elements and have five threads let's
-    // take care of the 5k ones with the first core, the 5k+1 with the second
-    // one... etc
     if(ver == 0)
         find_routine = &find_threadable;
     else
         find_routine = &vect_find_threadable;
 
-    // Let's construct an ind_val for each thread
-    ind_vals = malloc(n_threads*sizeof(int**));
+    // Let's make room in memory for our threads...
+    thread = malloc(n_threads * sizeof(pthread_t));
+    attr = malloc(n_threads * sizeof(struct thread_data));
 
-    // Let's make room in memory for our threads
-    pthread_t thread[n_threads];
-    struct thread_data attr[n_threads];
+    // ... and the result of their execution
+    s = malloc(n_threads * sizeof(int));
+    ind_vals = malloc(n_threads * sizeof(int**));
 
-    // Pointers to put results into a single array in the right order
-    int s[n_threads];
 
     if(k > 0){
         gc = malloc(sizeof(int));
         *gc = 0;
         mgc = k;
+        pthread_mutex_init(&gc_lock, NULL);
     } else
         gc = NULL;
 
@@ -226,8 +225,6 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     for(i = 0; i < n_threads; i++){
         c += s[i];
     }
-    if(k > 0 && c > k)
-        c = k;
 
     (*ind_val) = malloc(sizeof(int) * c);
 
@@ -242,7 +239,10 @@ int thread_find(int *U, int i_start, int i_end, int i_step, int val,
     }
 
     // Let's free our last resources
-    free(gc);
+    if(gc != NULL){
+        free(gc);
+        pthread_mutex_destroy(&gc_lock);
+    }
     free(ind_vals);
 
     return c;
