@@ -181,9 +181,26 @@ on each core, which would slow down the execution time.
 
 ### Questions about the multi-threaded approach
 
-#### Describe the data structure of a (POSIX) thread
+#### Describe the data structure of our thread
 
-<TODO>
+To pass arguments to a thread routine, the only option we have is to pass a
+generic `(void*)` pointer. Therefore, we created a C structure holding all the
+arguments we need to pass to our routine an we then pass a pointer to an
+instance of that same structure. Here's how it looks like:
+
+```C
+struct thread_data{
+    int *U; // A pointer on U
+    int i_start; // The index to start searching at
+    int i_end; // The one where the search shall end
+    int i_step; // The step at which we want to perform the search
+    int val; // The value to look for
+    int **ind_val; // A pointer to the result array
+};
+```
+
+Then, inside the thread routines, we'll unwrap this `struct` and call `find` or
+`vect_find` with the arguments it contains.
 
 #### The k-factor, or how do we make our running threads talk to each other ?
 
