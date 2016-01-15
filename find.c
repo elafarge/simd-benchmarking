@@ -86,7 +86,6 @@ int vect_find(int *U, int i_start, int i_end, int i_step, int val,
         // thanks to the condition on the for)
 
         // If the whole mask is null, no matching element: let's move forward
-        // mask = _mm256_movemask_epi8(_mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i))));
         if(!_mm256_movemask_epi8(_mm256_cmpeq_epi32(cmp_vect, *((__m256i*)(U + i)))))
             continue;
 
