@@ -4,8 +4,8 @@ multi-threaded computing versus a naïve, mono-threaded implementation.
 
 ## Compiling instructions ##
 
-To compile the C program with GCC, use make (in order to avoid compiling each
-file manually). The command to run is `make`, simply `make`
+To compile the C program with GCC, use GNU make (in order to avoid compiling
+each file manually). The command to run is `make`, simply `make`
 
 This will create a binary named `simdbmk` using GCC as a C compiler. All the
 generated object files and the `simdbmk` binary will end up in a `./gcc_build`
@@ -37,7 +37,7 @@ containing the indexes where `val` was found in the array.
 
 * Generate a random array of integers containing values between `a` and `b`
 * Run the naive `find` on it
-* Run it's vectorial counterpart and measure the performance gain.
+* Run its vectorial counterpart and measure the performance gain.
 * Run the non vectorial parallel version of `find` and compare it against the
   naive one
 * Run the vectorized, parallel version of `find` and compare it against the
@@ -103,19 +103,17 @@ performance response:
 size of the input array.")
 
 As can be expected, the running time is proportional to the size of the input
-array. The performance ratios seem to converge around 2 for the vectorial
-implementation, 4 for the multithreaded version (which was to be expected since
-we have 4 cores. We can note that hyperthreading doesn't have a huge influence
-here). Finally with the multithreaded vectorial approach, we get a `x8.5`
+array. The performance ratios seem to converge around 3 for the vectorial
+implementation, and a little bit more than 3 for the multithreaded version.
+Finally with the multithreaded vectorial approach, we get a `x10`
 performance gain, which is quite nice.
 
 When the sought element is not in the array though, the performance factor for
 the multithreaded vectorial approach reaches 12. This can be explained by the
 fact that the gain from going vectorial is lost when an element is found. In
 addition to that the `realloc()` sometimes involves a copy of the whole result
-array in memory. Using linked lists instead of standard C arrays would probably
-have been a better choice, but the memory occupied by the result would have
-then been multiplied by 3.
+array in memory (`realloc()` is actually very well managed by the Linux kernel
+but still, it does take some time to run :) ).
 
 ## Questions about different aspects of the program
 
