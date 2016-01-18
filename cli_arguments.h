@@ -3,7 +3,7 @@
  *
  *       Filename:  cli_arguments.h
  *
- *    Description:  All the CLI argument parsing related functions for simdbmk²
+ *    Description:  All the CLI argument parsing related functions for simdbmk
  *
  *        Version:  1.0
  *        Created:  09/01/2016 17:21:23
